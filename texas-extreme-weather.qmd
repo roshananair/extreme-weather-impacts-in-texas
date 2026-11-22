@@ -161,7 +161,7 @@ n_blackout_residences <- nrow(blackout_residences)
 blackout_pct = 100 * (n_blackout_residences / n_residences)
 ```
 
-## Plotting and Discusson
+## Plotting and Discussion
 ```{r}
 # Plotting where buildings has blackouts
 buildings_plot <- tm_shape(buildings_blackout) + 
@@ -180,27 +180,18 @@ tm_title('Residences (Dwellings)', position = tm_pos_out('center', 'top'), fontf
 tm_basemap('OpenStreetMap')
 ```
 
+### Blackouts Experienced by Residential Buildings & Dwellings
 ```{r}
 # Arranging the blackout plots
-blackout_arranged <- tmap_grob(tmap_arrange(buildings_plot, residences_plot, ncol = 2, nrow = 1))
-
-# Adding a plot title
-title <- ggdraw() +
-  draw_label('Where Buildings & Residences Experienced Blackouts (Houston, Texas)', fontface = 'bold', size = 16)
-
-# Creating the plot grid
-blackout_plot <- plot_grid(title, blackout_arranged, ncol = 1, rel_heights = c(0.1, 0.9))
-
-# Displaying the plot
-blackout_plot
+tmap_arrange(buildings_plot, residences_plot, ncol = 2, nrow = 1)
 ```
 
-_This plot displays where buildings and residences experienced blackouts in the Houston metropolitan area. The left plot shows polygons for all buildings fiting a residential profile that experienced blackout. The right plot shows the same, but for all buildings that fit a residential profile **and** have a surface area of greater than 30 square meters (to remove buildings like detached garages, greenhouses, and sheds, while retaining mobile homes). They are almost identical, as the removal of small accessory structures only reduced the total residential buildings by approximately 8000 (475941 to 468091)._
+_This plot displays where residential buildings and dwellings experienced blackouts in the Houston metropolitan area. The left plot shows polygons for all buildings fiting a residential profile that experienced blackout. The right plot shows the same, but for all buildings that fit a residential profile **and** have a surface area of greater than 30 square meters (~322 square feet) (to remove buildings like detached single-car garages, greenhouses, and sheds), what are essentially dwellings. They are almost identical, as the removal of small accessory structures only reduced the total residential buildings by approximately 8000 (475941 to 468091)._
 
 ```{r}
 # Combining the 2/7 and 2/16 maps into one figure
 tx_feb <- c(tx_07, tx_16)
-names(tx_feb) <- c('February 7th (Before)', 'February 16th (After)')
+names(tx_feb) <- c('February 7th', 'February 16th')
 
 # Cropping to Houston extent
 tx_feb_houston <- crop(tx_feb, houston_extent)
@@ -214,8 +205,8 @@ tm_layout(panel.label.bg.color = 'white', panel.label.color = 'black', panel.lab
 tm_scalebar(position = tm_pos_out('center', 'bottom'), stack = 'vertical', text.size = 0.6)
 ```
 
-_This plot shows the chnage in light intensity observed before and after severe storms driven by the polar vortex in February of 2021 in Houston, Texas. There is a visible loss of light intensity as many parts of the metropolitan area ezperienced power blackouts, which left millions without power._
+_This plot shows the chnage in light intensity observed before and after severe storms driven by the polar vortex in February of 2021 in Houston, Texas. There is a visible loss of light intensity as many parts of the metropolitan area experienced power blackouts, which left millions without power._
 
 **Reflection**
 
-_Here I aimed to understand the extent and severity of the blaackouts that occured because of XYZ storms in XXX year in Texas, in the metropolitan area of Houston. The night light intensity visibly decreased as a result of power outages across the region and the outages appear to be concentrated in certain areas, potentially under certain power grids. Limitations in looking at outages comes from the way that buldings appear to be classified, as I needed to clean the buildings to be of a likely residential size of greater than 30 square meters. Additonally, blackouts were modeled using remote sensing of light, as opposed to power company outage information; although light due to highways was accounted for, there could be other potential reasons for increase or decrease in light intensity outside of blackouts._
+_Here I aimed to understand the extent and severity of the blackouts that occured because of severe storms due to the polar vortex in February of 2021 in Texas, in the metropolitan area of Houston. The night light intensity visibly decreased as a result of power outages across the region and the outages appear to be concentrated in certain areas, potentially under certain power grids. Limitations in looking at outages comes from the way that buldings appear to be classified, as I needed to clean the buildings to be of a likely residential size of greater than 30 square meters. Additonally, blackouts were modeled using remote sensing of light, as opposed to power company outage information; although light due to highways was accounted for, there could be other potential reasons for increase or decrease in light intensity outside of blackouts._
