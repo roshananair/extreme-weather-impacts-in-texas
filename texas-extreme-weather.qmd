@@ -1,0 +1,221 @@
+---
+title: "Identifying the Impacts of Extreme Weather: 2021 Texas Power Crisis"
+subtitle: "EDS 223 Homework 4"
+author: "Roshan Andres Nair"
+format: 
+  pdf:
+    include-in-header:
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+    fig-width: 9
+    fig-height: 6
+    fig-pos: "H"
+execute:
+  warning: false
+  message: false
+knitr:
+  opts_chunk:
+    sf_quiet: !expr |
+      setHook(packageEvent("sf", "attach"), function(...) {
+        assign("st_read", function(..., quiet = TRUE) sf::st_read(..., quiet = quiet), envir = globalenv())
+      })
+---
+## Setup
+### Library
+```{r}
+# Library of Packages
+library(tidyverse)
+library(sf)
+library(here)
+library(stars)
+library(tmap)
+library(quarto)
+library(spData)
+library(spDataLarge)
+library(geodata)
+library(terra)
+library(cowplot)
+```
+
+### Set Theme
+```{r}
+# Set Theme
+theme_set(theme_bw())
+```
+
+## Data Loading
+```{r}
+roads <- st_read('data/gis_osm_roads_free_1.gpkg.zip', query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass = 'motorway'")
+
+buildings <- st_read('data/gis_osm_buildings_a_free_1.gpkg.zip', query = "SELECT * FROM gis_osm_buildings_a_free_1 WHERE (type IS NULL AND name IS NULL) OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')")
+
+tx_5_07 <- rast('data/VNP46A1/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif')
+tx_5_16 <- rast('data/VNP46A1/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif')
+tx_6_07 <- rast('data/VNP46A1/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif')
+tx_6_16 <- rast('data/VNP46A1/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif')
+```
+
+## Data Merging
+```{r}
+# Combining raster tiles for each date
+tx_07 <- merge(tx_5_07, tx_6_07)
+tx_16 <- merge(tx_5_16, tx_6_16)
+```
+
+## Finding Locations that Experienced a Blackout
+
+```{r}
+# Checking extent, resolution, and CRS match
+compareGeom(tx_07, tx_16) # true
+```
+```{r}
+# Difference raster
+tx_diff <- tx_16 - tx_07
+
+# Reclassifying (1: >= 200, else NA)
+blackout <- ifel(tx_diff <= -200, 1, NA)
+```
+```{r}
+# Vectorising the blackout mask
+blackout_vect <- as.polygons(blackout, dissolve = TRUE, na.rm = TRUE)
+
+# Checking for invalid geometries
+is.valid(blackout_vect) # true
+```
+```{r}
+# Defining Houston rectangular polygon
+houston_extent <- ext(-96.5, -94.5, 29, 30.5)
+
+# Cropping to Houston coordinates
+blackout_cropped <- crop(blackout_vect, houston_extent)
+```
+```{r}
+# Reprojecting cropped blackout to EPSG:3083
+blackout_reprojected <- project(blackout_cropped, 'EPSG:3083')
+
+# Checking new CRS
+crs(blackout_reprojected, describe = TRUE) # EPSG 3083
+```
+
+## Excluding Highways
+```{r}
+# Converting the roads linestrings to a SpatVector (terra)
+motorways_vector <- vect(roads)
+
+# Reprojecting the motorways to match the blackout SpatVector
+motorways_reprojected <- project(motorways_vector, 'EPSG:3083')
+
+# Creating 200 meter buffer around motorways
+motorways_200_buffer <- buffer(motorways_reprojected, width = 200)
+
+# Removing the 200 meter buffer for motorways from blackout SpatVector
+blackout_no_motorways <- erase(blackout_reprojected, motorways_200_buffer)
+```
+
+## Identifying Homes that Experienced a Blackout
+```{r}
+# Converting building multipolygons to SpatVector (terra)
+buildings_vector <- vect(buildings)
+
+# Reprojecting the buildings to match the blackout SpatVector
+buildings_reprojected <- project(buildings_vector, 'EPSG:3083')
+
+# Clipping to buildings that experienced a blackout
+buildings_blackout <- intersect(buildings_reprojected, blackout_no_motorways)
+```
+
+## Estimating Homes that Lost Power
+### Estimating Total Residences
+```{r}
+# Finding building areas
+buildings_vector$area <- expanse(buildings_vector, unit = 'm')
+
+# Removing small, non-housing structures (<30 m^2), retaining mobile homes
+residences <- buildings_vector[buildings_vector$type %in% 'static_caravan' | buildings_vector$area >= 30, ]
+
+# Removing duplicate rows with the same ID
+residences <- residences[!duplicated(residences$osm_id), ]
+
+# Estimated total residences/homes
+n_residences <- nrow(residences)
+```
+
+### Estimating Blackout Residences
+```{r}
+# Finding building areas
+buildings_blackout$area <- expanse(buildings_blackout, unit = 'm')
+
+# Removing small, non-housing structures (<30 m^2), retaining mobile homes
+blackout_residences <- buildings_blackout[buildings_blackout$type %in% 'static_caravan' | buildings_vector$area >= 30, ]
+
+# Removing duplicate rows with the same ID
+blackout_residences <- blackout_residences[!duplicated(blackout_residences$osm_id), ]
+
+# Estimated total blackout residences/homes
+n_blackout_residences <- nrow(blackout_residences)
+```
+
+```{r}
+# Estimated proportion of residences in blackout
+blackout_pct = 100 * (n_blackout_residences / n_residences)
+```
+
+## Plotting and Discusson
+```{r}
+# Plotting where buildings has blackouts
+buildings_plot <- tm_shape(buildings_blackout) + 
+  tm_polygons(col = '#1B365D', fill = '#1B365D') +
+tm_title('Residential Buildings', position = tm_pos_out('center', 'top'), fontface = 'bold') +
+tm_scalebar(position = c('left', 'bottom'), text.size = 0.6) +
+tm_compass(position = c('right', 'top'), size = 1.5) +
+tm_basemap('OpenStreetMap')
+```
+
+```{r}
+# Plotting where residences has blackouts
+residences_plot <- tm_shape(blackout_residences) + 
+  tm_polygons(col = '#1B365D', fill = '#1B365D') +
+tm_title('Residences (Dwellings)', position = tm_pos_out('center', 'top'), fontface = 'bold') +
+tm_basemap('OpenStreetMap')
+```
+
+```{r}
+# Arranging the blackout plots
+blackout_arranged <- tmap_grob(tmap_arrange(buildings_plot, residences_plot, ncol = 2, nrow = 1))
+
+# Adding a plot title
+title <- ggdraw() +
+  draw_label('Where Buildings & Residences Experienced Blackouts (Houston, Texas)', fontface = 'bold', size = 16)
+
+# Creating the plot grid
+blackout_plot <- plot_grid(title, blackout_arranged, ncol = 1, rel_heights = c(0.1, 0.9))
+
+# Displaying the plot
+blackout_plot
+```
+
+_This plot displays where buildings and residences experienced blackouts in the Houston metropolitan area. The left plot shows polygons for all buildings fiting a residential profile that experienced blackout. The right plot shows the same, but for all buildings that fit a residential profile **and** have a surface area of greater than 30 square meters (to remove buildings like detached garages, greenhouses, and sheds, while retaining mobile homes). They are almost identical, as the removal of small accessory structures only reduced the total residential buildings by approximately 8000 (475941 to 468091)._
+
+```{r}
+# Combining the 2/7 and 2/16 maps into one figure
+tx_feb <- c(tx_07, tx_16)
+names(tx_feb) <- c('February 7th (Before)', 'February 16th (After)')
+
+# Cropping to Houston extent
+tx_feb_houston <- crop(tx_feb, houston_extent)
+
+# Plotting
+tm_shape(tx_feb_houston) +
+  tm_raster(col.scale = tm_scale_continuous(values = 'inferno', trans = 'log1p'), col.free = FALSE, col.legend = tm_legend(title = 'Light Intensity (nW·cm⁻²·sr⁻¹)', position = tm_pos_out('center', 'bottom', 'center'), orientation = 'landscape', stack = 'vertical')) +
+tm_facets(ncol = 2) +
+tm_title('Night Light Intensity Comparison (Houston, Texas)', position = tm_pos_out('center', 'top', 'center'), fontface = 'bold') +
+tm_layout(panel.label.bg.color = 'white', panel.label.color = 'black', panel.label.frame = FALSE, panel.label.fontface = 'bold') +
+tm_scalebar(position = tm_pos_out('center', 'bottom'), stack = 'vertical', text.size = 0.6)
+```
+
+_This plot shows the chnage in light intensity observed before and after severe storms driven by the polar vortex in February of 2021 in Houston, Texas. There is a visible loss of light intensity as many parts of the metropolitan area ezperienced power blackouts, which left millions without power._
+
+**Reflection**
+
+_Here I aimed to understand the extent and severity of the blaackouts that occured because of XYZ storms in XXX year in Texas, in the metropolitan area of Houston. The night light intensity visibly decreased as a result of power outages across the region and the outages appear to be concentrated in certain areas, potentially under certain power grids. Limitations in looking at outages comes from the way that buldings appear to be classified, as I needed to clean the buildings to be of a likely residential size of greater than 30 square meters. Additonally, blackouts were modeled using remote sensing of light, as opposed to power company outage information; although light due to highways was accounted for, there could be other potential reasons for increase or decrease in light intensity outside of blackouts._
